@@ -55,6 +55,7 @@ func NewCommand() *cobra.Command {
 	command.AddCommand(NewLogoutCommand(&clientOpts))
 	command.AddCommand(initialize.InitCommand(NewCertCommand(&clientOpts)))
 	command.AddCommand(initialize.InitCommand(NewGPGCommand(&clientOpts)))
+	command.AddCommand(initialize.InitCommand(NewOCICommand(&clientOpts)))
 	command.AddCommand(admin.NewAdminCommand())
 
 	defaultLocalConfigPath, err := localconfig.DefaultLocalConfigPath()

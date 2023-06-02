@@ -335,6 +335,12 @@ const (
 	SecurityLow                               = 1 // Unexceptional entries (i.e. successful access logs)
 )
 
+// OCI
+const (
+	OCIArtifactConfigMediaType  = "application/vnd.cncf.argoproj.argocd.config.v1+json"
+	OCIArtifactContentMediaType = "application/vnd.cncf.argoproj.argocd.content.v1.tar+gzip"
+)
+
 // TokenVerificationError is a generic error message for a failure to verify a JWT
 const TokenVerificationError = "failed to verify the token"
 
