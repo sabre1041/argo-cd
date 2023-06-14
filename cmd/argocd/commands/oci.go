@@ -3,10 +3,8 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"sync"
 
@@ -21,13 +19,10 @@ import (
 	"github.com/argoproj/argo-cd/v2/common"
 	argocdclient "github.com/argoproj/argo-cd/v2/pkg/apiclient"
 	"github.com/argoproj/argo-cd/v2/util/errors"
-	"github.com/opencontainers/go-digest"
-	credentials "github.com/oras-project/oras-credentials-go"
+	"github.com/argoproj/argo-cd/v2/util/oci"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
-	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 type OciOptions struct {
@@ -40,8 +35,7 @@ type OciOptions struct {
 }
 
 const (
-	OciTarArchiveExtension  = ".tar.gz"
-	DockerMediaTypeManifest = "application/vnd.docker.distribution.manifest.v2+json"
+	OciTarArchiveExtension = ".tar.gz"
 )
 
 // NewOCICommand returns a new instance of an `argocd oci` command
@@ -90,7 +84,7 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 			errors.CheckError(err)
 			defer store.Close()
 
-			repository, err := newRepository(&ociOpts, clientOpts)
+			repository, err := oci.NewRepository(ociOpts.RegistryReference, clientOpts.Insecure, clientOpts.PlainText)
 			errors.CheckError(err)
 
 			var printed sync.Map
@@ -101,7 +95,7 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 					if _, ok := printed.LoadOrStore(target.Digest.String(), true); ok {
 						return fetcher.Fetch(ctx, target)
 					}
-					log.Infof("Downloading %s", shortDigest(desc))
+					log.Infof("Downloading %s", oci.ShortDigest(desc))
 					rc, err := fetcher.Fetch(ctx, target)
 					if err != nil {
 						return nil, err
@@ -111,15 +105,15 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 							rc.Close()
 						}
 					}()
-					log.Infof("Processing %s", shortDigest(desc))
+					log.Infof("Processing %s", oci.ShortDigest(desc))
 					return rc, nil
 				})
 
-				nodes, _, config, err := Successors(ctx, statusFetcher, desc)
+				nodes, _, config, err := oci.Successors(ctx, statusFetcher, desc)
 				errors.CheckError(err)
 
 				// Verify appropriate MediaTypes Present
-				if desc.MediaType == ocispec.MediaTypeImageManifest || desc.MediaType == DockerMediaTypeManifest {
+				if desc.MediaType == ocispec.MediaTypeImageManifest || desc.MediaType == oci.DockerMediaTypeManifest {
 					if config.MediaType != common.OCIArtifactConfigMediaType {
 						errors.Fatalf(1, "Invalid Config MediaType '%s'. Expected MediaType '%s'", config.MediaType, common.OCIArtifactConfigMediaType)
 					}
@@ -129,14 +123,14 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			}
 			copyOpts.OnCopySkipped = func(ctx context.Context, desc ocispec.Descriptor) error {
-				log.Infof("Skipped %s", shortDigest(desc))
+				log.Infof("Skipped %s", oci.ShortDigest(desc))
 				return nil
 			}
 			copyOpts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
 				if _, ok := printed.LoadOrStore(desc.Digest.String(), true); ok {
 					return nil
 				}
-				log.Infof("Downloading %s", shortDigest(desc))
+				log.Infof("Downloading %s", oci.ShortDigest(desc))
 				return nil
 			}
 			// Copy
@@ -211,7 +205,7 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			// TODO: Remove default annotations. Needed for oras CLI integration for testing
 			// desc.Annotations = map[string]string{}
-			repository, err := newRepository(&ociOpts, clientOpts)
+			repository, err := oci.NewRepository(ociOpts.RegistryReference, clientOpts.Insecure, clientOpts.PlainText)
 			errors.CheckError(err)
 
 			err = store.Push(ctx, configDesc, bytes.NewReader([]byte("{}")))
@@ -229,17 +223,17 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			copyOpts := oras.DefaultCopyOptions
 			copyOpts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
-				log.Infof("Uploading %s", shortDigest(desc))
+				log.Infof("Uploading %s", oci.ShortDigest(desc))
 				return nil
 			}
 
 			copyOpts.OnCopySkipped = func(ctx context.Context, desc ocispec.Descriptor) error {
-				log.Infof("Skipped %s", shortDigest(desc))
+				log.Infof("Skipped %s", oci.ShortDigest(desc))
 				return nil
 			}
 
 			copyOpts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
-				log.Infof("Uploaded %s", shortDigest(desc))
+				log.Infof("Uploaded %s", oci.ShortDigest(desc))
 				return nil
 			}
 			_, err = oras.Copy(ctx, store, root.Digest.String(), repository, repository.Reference.Reference, copyOpts)
@@ -255,74 +249,4 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 	command.Flags().BoolVar(&ociOpts.InsecureSkipServerVerification, "insecure-skip-server-verification", false, "disables server certificate and host key checks")
 
 	return command
-}
-
-func shortDigest(desc ocispec.Descriptor) (digestString string) {
-	digestString = desc.Digest.String()
-	if err := desc.Digest.Validate(); err == nil {
-		if algo := desc.Digest.Algorithm(); algo == digest.SHA256 {
-			digestString = desc.Digest.Encoded()[:12]
-		}
-	}
-	return digestString
-}
-
-func newRepository(ociOpts *OciOptions, clientOpts *argocdclient.ClientOptions) (*remote.Repository, error) {
-
-	repository, err := remote.NewRepository(ociOpts.RegistryReference)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if repository.Reference.Reference == "" {
-		repository.Reference.Reference = "latest"
-	}
-
-	// Set up Client
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// TODO: Check for/setup Certificates
-	transport.TLSClientConfig.InsecureSkipVerify = ociOpts.InsecureSkipServerVerification
-
-	//Plain HTTP support
-	repository.PlainHTTP = clientOpts.PlainText
-
-	credentialStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{AllowPlaintextPut: true})
-	if err != nil {
-		return nil, err
-	}
-
-	//Setup Client
-	authClient := &auth.Client{
-		Credential: credentials.Credential(credentialStore),
-		Cache:      auth.NewCache(),
-		Client: &http.Client{
-			Transport: transport,
-		},
-	}
-	repository.Client = authClient
-
-	return repository, nil
-
-}
-
-func Successors(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) (nodes []ocispec.Descriptor, subject, config *ocispec.Descriptor, err error) {
-	switch node.MediaType {
-	case DockerMediaTypeManifest, ocispec.MediaTypeImageManifest:
-		var fetched []byte
-		fetched, err = content.FetchAll(ctx, fetcher, node)
-		if err != nil {
-			return
-		}
-		var manifest ocispec.Manifest
-		if err = json.Unmarshal(fetched, &manifest); err != nil {
-			return
-		}
-		nodes = manifest.Layers
-		subject = manifest.Subject
-		config = &manifest.Config
-	default:
-		nodes, err = content.Successors(ctx, fetcher, node)
-	}
-	return
 }
