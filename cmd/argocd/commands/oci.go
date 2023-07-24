@@ -188,11 +188,7 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			ctx := c.Context()
 
-			tmpDir, err := os.MkdirTemp("", "argocd-oci")
-			errors.CheckError(err)
-			defer os.RemoveAll(tmpDir)
-
-			store, err := file.New(tmpDir)
+			store, err := file.New("")
 			errors.CheckError(err)
 			defer store.Close()
 
@@ -205,7 +201,7 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			// TODO: Remove default annotations. Needed for oras CLI integration for testing
 			// desc.Annotations = map[string]string{}
-			repository, err := oci.NewRepository(ociOpts.RegistryReference, clientOpts.Insecure, clientOpts.PlainText)
+			repository, err := oci.NewRepository(ociOpts.RegistryReference, ociOpts.InsecureSkipServerVerification, clientOpts.PlainText)
 			errors.CheckError(err)
 
 			err = store.Push(ctx, configDesc, bytes.NewReader([]byte("{}")))
