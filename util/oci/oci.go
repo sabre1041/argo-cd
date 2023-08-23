@@ -3,8 +3,11 @@ package oci
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 
+	"github.com/argoproj/argo-cd/v2/common"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	credentials "github.com/oras-project/oras-credentials-go"
@@ -85,4 +88,19 @@ func Successors(ctx context.Context, fetcher content.Fetcher, node ocispec.Descr
 		nodes, err = content.Successors(ctx, fetcher, node)
 	}
 	return
+}
+
+func VerifyOciFormat(remote string) error {
+
+	u, err := url.Parse(remote)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %s", remote)
+	}
+
+	if u.Scheme == "" {
+		return fmt.Errorf("scheme prefix missing from remote (e.g. \"%s://\")", common.OCIScheme)
+	}
+
+	return nil
+
 }

@@ -337,6 +337,8 @@ const (
 
 // OCI
 const (
+	// OCIScheme is the URL scheme for OCI-based requests
+	OCIScheme                   = "oci"
 	OCIArtifactConfigMediaType  = "application/vnd.cncf.argoproj.argocd.config.v1+json"
 	OCIArtifactContentMediaType = "application/vnd.cncf.argoproj.argocd.content.v1.tar+gzip"
 )

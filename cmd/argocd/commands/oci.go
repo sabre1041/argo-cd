@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -70,6 +71,12 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 
 			ociOpts.RegistryReference = args[0]
 
+			// Ensure proper format of Registry Reference
+			err := oci.VerifyOciFormat(ociOpts.RegistryReference)
+			errors.CheckError(err)
+
+			ociOpts.RegistryReference = strings.TrimPrefix(ociOpts.RegistryReference, fmt.Sprintf("%s://", common.OCIScheme))
+
 		},
 
 		Run: func(c *cobra.Command, args []string) {
@@ -84,7 +91,7 @@ func NewOCIPullCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 			errors.CheckError(err)
 			defer store.Close()
 
-			repository, err := oci.NewRepository(ociOpts.RegistryReference, clientOpts.Insecure, clientOpts.PlainText)
+			repository, err := oci.NewRepository(ociOpts.RegistryReference, ociOpts.InsecureSkipServerVerification, clientOpts.PlainText)
 			errors.CheckError(err)
 
 			var printed sync.Map
@@ -182,6 +189,12 @@ func NewOCIPushCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
 					}
 				}
 			}
+
+			// Ensure proper format of Registry Reference
+			err := oci.VerifyOciFormat(ociOpts.RegistryReference)
+			errors.CheckError(err)
+
+			ociOpts.RegistryReference = strings.TrimPrefix(ociOpts.RegistryReference, fmt.Sprintf("%s://", common.OCIScheme))
 
 		},
 		Run: func(c *cobra.Command, args []string) {
